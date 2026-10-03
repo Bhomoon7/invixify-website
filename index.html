@@ -408,33 +408,16 @@
           requestAnimationFrame(inspect);
         });
       }
-      function forwardGlobalEvents(){
-        var types=['mousemove','mousedown','mouseup','click','pointermove','pointerdown','pointerup'];
-        types.forEach(function(type){
-          var isPointer=type.indexOf('pointer')===0;
-          window.addEventListener(type,function(e){
-            if(e.target===canvas)return;
-            try{
-              var init={bubbles:true,cancelable:true,view:window,clientX:e.clientX,clientY:e.clientY,
-                ctrlKey:!!e.ctrlKey,shiftKey:!!e.shiftKey,altKey:!!e.altKey,metaKey:!!e.metaKey,button:(typeof e.button==='number')?e.button:0};
-              var evt;
-              if(isPointer&&typeof PointerEvent==='function'){try{evt=new PointerEvent(type,init)}catch(_pe){evt=new MouseEvent(type,init)}}
-              else{evt=new MouseEvent(type,init)}
-              canvas.dispatchEvent(evt);
-            }catch(_dispatchErr){}
-          },{passive:true});
-        });
-      }
       function start(){
         loadRuntime().then(function(runtime){
           if(!runtime||!runtime.Application)throw new Error('Application export missing');
           var app=new runtime.Application(canvas);
+          app.setGlobalEvents(true);
           return app.load(SCENE_URL).then(function(){return app});
         }).then(function(app){
           resize(app);
           if('ResizeObserver' in window){new ResizeObserver(function(){resize(app)}).observe(canvas)}
           else{window.addEventListener('resize',function(){resize(app)})}
-          forwardGlobalEvents();
           return waitForFirstRenderedFrame().then(finishLoader);
         }).catch(function(err){
           if(window.console&&console.warn)console.warn('3D hero scene failed to load:',err);
