@@ -522,6 +522,20 @@
       var pageRegions=[document.querySelector('.topbar'),document.querySelector('main'),document.querySelector('footer'),document.getElementById('siteChat')].filter(Boolean);
       pageRegions.forEach(function(region){region.setAttribute('inert','')});
       var sceneReady=false,loaderFinished=false;
+      var debugMode=/[?&]debug=1/.test(window.location.search);
+      var debugBadge=null;
+      function debugLog(msg){
+        if(!debugMode)return;
+        try{
+          if(!debugBadge){
+            debugBadge=document.createElement('div');
+            debugBadge.style.cssText='position:fixed;right:8px;bottom:8px;z-index:99999;background:#151A2C;color:#F7F5EF;font:11px/1.5 monospace;padding:8px 10px;border-radius:8px;max-width:72vw;white-space:pre-wrap;opacity:.95';
+            document.body.appendChild(debugBadge);
+          }
+          var t=new Date();
+          debugBadge.textContent+='\n'+t.getMinutes()+':'+('0'+t.getSeconds()).slice(-2)+' '+msg;
+        }catch(_dbgErr){}
+      }
       var reduced=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       var safetyTimer=window.setTimeout(function(){
         if(loaderFinished)return;
@@ -538,11 +552,13 @@
       }
       function markSceneReady(){
         sceneReady=true;
+        debugLog('FIRST FRAME RENDERED - 3D is live, hiding poster');
         if(stage){stage.classList.remove('scene-delayed');stage.classList.remove('scene-static')}
         finishLoader();
       }
       function markSceneFailed(err){
         if(window.console&&console.warn)console.warn('3D hero scene failed to load:',err);
+        debugLog('SCENE FAILED: '+(err&&err.message||err));
         if(stage){stage.classList.remove('scene-delayed');stage.classList.add('scene-error')}
         sceneReady=true;finishLoader();
       }
@@ -560,10 +576,13 @@
           next(0);
         });
       }
+      var coarseM=window.matchMedia&&window.matchMedia('(pointer: coarse)').matches;
+      var smallM=window.matchMedia&&window.matchMedia('(max-width: 820px)').matches;
+      var renderScale=(coarseM||smallM)?0.75:1;
       function resize(app){
         try{
           var w=canvas.clientWidth,h=canvas.clientHeight;
-          if(w>0&&h>0&&typeof app.setSize==='function')app.setSize(w,h);
+          if(w>0&&h>0&&typeof app.setSize==='function')app.setSize(Math.round(w*renderScale),Math.round(h*renderScale));
         }catch(_sizeErr){}
       }
       function waitForFirstRenderedFrame(){
@@ -583,13 +602,17 @@
           requestAnimationFrame(inspect);
         });
       }
-      function startScene(){
+      function startScene(retryLeft){
+        if(typeof retryLeft!=='number')retryLeft=0;
+        debugLog('startScene called (retries left: '+retryLeft+')');
         loadRuntime().then(function(runtime){
           if(!runtime||!runtime.Application)throw new Error('Application export missing');
+          debugLog('3D runtime loaded');
           var app=new runtime.Application(canvas);
           var touchFirst=window.matchMedia&&window.matchMedia('(pointer: coarse)').matches;
           app.setGlobalEvents(!touchFirst);
-          return app.load(SCENE_URL).then(function(){return app});
+          debugLog('downloading 3D scene file...');
+          return app.load(SCENE_URL).then(function(){debugLog('3D scene file downloaded');return app});
         }).then(function(app){
           var resizeTimer=0;
           function queueResize(){
@@ -601,10 +624,15 @@
           window.addEventListener('resize',queueResize,{passive:true});
           window.addEventListener('orientationchange',function(){queueResize();window.setTimeout(queueResize,320)},{passive:true});
           document.addEventListener('visibilitychange',function(){if(!document.hidden)queueResize()});
+          debugLog('waiting for first 3D frame...');
           return waitForFirstRenderedFrame().then(markSceneReady);
-        }).catch(markSceneFailed);
+        }).catch(function(err){
+          debugLog('3D error: '+(err&&err.message||err));
+          if(retryLeft>0){debugLog('retrying 3D load in 5s...');window.setTimeout(function(){startScene(retryLeft-1)},5000)}
+          else markSceneFailed(err);
+        });
       }
-      function startAfterFirstPaint(){requestAnimationFrame(function(){setTimeout(function(){var coarse=window.matchMedia&&window.matchMedia('(pointer: coarse)').matches;var small=window.matchMedia&&window.matchMedia('(max-width: 820px)').matches;if((coarse||small)&&stage){stage.classList.add('scene-static');finishLoader();startScene();return}startScene();},0)})}
+      function startAfterFirstPaint(){requestAnimationFrame(function(){setTimeout(function(){var coarse=window.matchMedia&&window.matchMedia('(pointer: coarse)').matches;var small=window.matchMedia&&window.matchMedia('(max-width: 820px)').matches;if((coarse||small)&&stage){stage.classList.add('scene-static');debugLog('mobile branch: coarse='+coarse+' small='+small+' width='+window.innerWidth);debugLog('poster up, loader dismissed, loading 3D in background...');finishLoader();startScene(1);return}startScene();},0)})}
       if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',startAfterFirstPaint,{once:true});
       else startAfterFirstPaint();
     })();
